@@ -80,18 +80,39 @@ jobs:
           CALLER_ARN=$(aws sts get-caller-identity --query Arn --output text)
           echo "AWS account: $ACCOUNT_ID"
           echo "Caller ARN : $CALLER_ARN"
-          echo "EKS cluster role configured: $TF_VAR_eks_cluster_role_name"
-          echo "EKS node role configured   : $TF_VAR_eks_node_role_name"
+          echo "EKS cluster role inicial: $TF_VAR_eks_cluster_role_name"
+          echo "EKS node role inicial   : $TF_VAR_eks_node_role_name"
 
-          aws iam get-role --role-name "$TF_VAR_eks_cluster_role_name" --query 'Role.Arn' --output text || {
-            echo "ERRO: role de cluster não encontrada: $TF_VAR_eks_cluster_role_name";
-            exit 1;
-          }
+          if ! aws iam get-role --role-name "$TF_VAR_eks_cluster_role_name" >/dev/null 2>&1; then
+            AUTO_CLUSTER_ROLE=$(aws iam list-roles --query "Roles[?contains(RoleName, 'LabEksClusterRole')].RoleName | [0]" --output text)
+            if [ -n "$AUTO_CLUSTER_ROLE" ] && [ "$AUTO_CLUSTER_ROLE" != "None" ]; then
+              echo "TF_VAR_eks_cluster_role_name=$AUTO_CLUSTER_ROLE" >> "$GITHUB_ENV"
+              export TF_VAR_eks_cluster_role_name="$AUTO_CLUSTER_ROLE"
+              echo "Role de cluster auto-detectada: $TF_VAR_eks_cluster_role_name"
+            else
+              echo "ERRO: role de cluster não encontrada."
+              echo "Tentou nome explícito: LabEksClusterRole"
+              echo "E também não encontrou role contendo 'LabEksClusterRole'."
+              exit 1
+            fi
+          fi
 
-          aws iam get-role --role-name "$TF_VAR_eks_node_role_name" --query 'Role.Arn' --output text || {
-            echo "ERRO: role de node não encontrada: $TF_VAR_eks_node_role_name";
-            exit 1;
-          }
+          if ! aws iam get-role --role-name "$TF_VAR_eks_node_role_name" >/dev/null 2>&1; then
+            AUTO_NODE_ROLE=$(aws iam list-roles --query "Roles[?contains(RoleName, 'LabEksNodeRole')].RoleName | [0]" --output text)
+            if [ -n "$AUTO_NODE_ROLE" ] && [ "$AUTO_NODE_ROLE" != "None" ]; then
+              echo "TF_VAR_eks_node_role_name=$AUTO_NODE_ROLE" >> "$GITHUB_ENV"
+              export TF_VAR_eks_node_role_name="$AUTO_NODE_ROLE"
+              echo "Role de node auto-detectada: $TF_VAR_eks_node_role_name"
+            else
+              echo "ERRO: role de node não encontrada."
+              echo "Tentou nome explícito: LabEksNodeRole"
+              echo "E também não encontrou role contendo 'LabEksNodeRole'."
+              exit 1
+            fi
+          fi
+
+          echo "EKS cluster role final: $TF_VAR_eks_cluster_role_name"
+          echo "EKS node role final   : $TF_VAR_eks_node_role_name"
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
