@@ -5,26 +5,6 @@ data "aws_availability_zones" "available" {}
 
 data "aws_caller_identity" "current" {}
 
-data "aws_iam_policy_document" "eks_assume_role" {
-  statement {
-    actions = ["sts:AssumeRole"]
-    principals {
-      type        = "Service"
-      identifiers = ["eks.amazonaws.com"]
-    }
-  }
-}
-
-data "aws_iam_policy_document" "ec2_assume_role" {
-  statement {
-    actions = ["sts:AssumeRole"]
-    principals {
-      type        = "Service"
-      identifiers = ["ec2.amazonaws.com"]
-    }
-  }
-}
-
 # ============================================================
 # VPC
 # ============================================================
@@ -156,19 +136,9 @@ resource "aws_security_group" "rds" {
 # ============================================================
 # EKS CLUSTER
 # ============================================================
-resource "aws_iam_role" "eks_cluster" {
-  name               = "fiapx-eks-cluster-role"
-  assume_role_policy = data.aws_iam_policy_document.eks_assume_role.json
-}
-
-resource "aws_iam_role_policy_attachment" "eks_cluster_policy" {
-  role       = aws_iam_role.eks_cluster.name
-  policy_arn = "arn:aws:iam::aws:policy/AmazonEKSClusterPolicy"
-}
-
 resource "aws_eks_cluster" "fiapx" {
   name     = var.cluster_name
-  role_arn = aws_iam_role.eks_cluster.arn
+  role_arn = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${var.eks_cluster_role_name}"
   version  = "1.29"
 
   vpc_config {
@@ -177,34 +147,12 @@ resource "aws_eks_cluster" "fiapx" {
     endpoint_public_access  = true
     endpoint_private_access = true
   }
-
-  depends_on = [aws_iam_role_policy_attachment.eks_cluster_policy]
-}
-
-resource "aws_iam_role" "eks_node" {
-  name               = "fiapx-eks-node-role"
-  assume_role_policy = data.aws_iam_policy_document.ec2_assume_role.json
-}
-
-resource "aws_iam_role_policy_attachment" "eks_worker_node" {
-  role       = aws_iam_role.eks_node.name
-  policy_arn = "arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy"
-}
-
-resource "aws_iam_role_policy_attachment" "eks_cni" {
-  role       = aws_iam_role.eks_node.name
-  policy_arn = "arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy"
-}
-
-resource "aws_iam_role_policy_attachment" "eks_ecr" {
-  role       = aws_iam_role.eks_node.name
-  policy_arn = "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"
 }
 
 resource "aws_eks_node_group" "fiapx" {
   cluster_name    = aws_eks_cluster.fiapx.name
   node_group_name = "fiapx-nodes"
-  node_role_arn   = aws_iam_role.eks_node.arn
+  node_role_arn   = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${var.eks_node_role_name}"
   subnet_ids      = aws_subnet.private[*].id
   instance_types  = [var.node_instance_type]
 
@@ -217,80 +165,6 @@ resource "aws_eks_node_group" "fiapx" {
   update_config {
     max_unavailable = 1
   }
-
-  depends_on = [
-    aws_iam_role_policy_attachment.eks_worker_node,
-    aws_iam_role_policy_attachment.eks_cni,
-    aws_iam_role_policy_attachment.eks_ecr,
-  ]
-}
-
-# ============================================================
-# IRSA — IAM Role for Service Account (S3 + SQS sem credenciais nos pods)
-# ============================================================
-data "tls_certificate" "eks" {
-  url = aws_eks_cluster.fiapx.identity[0].oidc[0].issuer
-}
-
-resource "aws_iam_openid_connect_provider" "eks" {
-  client_id_list  = ["sts.amazonaws.com"]
-  thumbprint_list = [data.tls_certificate.eks.certificates[0].sha1_fingerprint]
-  url             = aws_eks_cluster.fiapx.identity[0].oidc[0].issuer
-}
-
-data "aws_iam_policy_document" "irsa_assume_role" {
-  statement {
-    actions = ["sts:AssumeRoleWithWebIdentity"]
-    condition {
-      test     = "StringEquals"
-      variable = "${replace(aws_iam_openid_connect_provider.eks.url, "https://", "")}:sub"
-      values   = ["system:serviceaccount:fiapx:fiapx-sa"]
-    }
-    principals {
-      type        = "Federated"
-      identifiers = [aws_iam_openid_connect_provider.eks.arn]
-    }
-  }
-}
-
-resource "aws_iam_role" "fiapx_irsa" {
-  name               = "fiapx-irsa-role"
-  assume_role_policy = data.aws_iam_policy_document.irsa_assume_role.json
-}
-
-resource "aws_iam_policy" "fiapx_s3_sqs" {
-  name = "fiapx-s3-sqs-policy"
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Effect = "Allow"
-        Action = [
-          "s3:PutObject", "s3:GetObject", "s3:DeleteObject", "s3:ListBucket"
-        ]
-        Resource = [
-          aws_s3_bucket.videos.arn,
-          "${aws_s3_bucket.videos.arn}/*"
-        ]
-      },
-      {
-        Effect = "Allow"
-        Action = [
-          "sqs:SendMessage", "sqs:ReceiveMessage", "sqs:DeleteMessage",
-          "sqs:GetQueueAttributes", "sqs:GetQueueUrl"
-        ]
-        Resource = [
-          aws_sqs_queue.processing.arn,
-          aws_sqs_queue.processing_dlq.arn
-        ]
-      }
-    ]
-  })
-}
-
-resource "aws_iam_role_policy_attachment" "fiapx_irsa_s3_sqs" {
-  role       = aws_iam_role.fiapx_irsa.name
-  policy_arn = aws_iam_policy.fiapx_s3_sqs.arn
 }
 
 # ============================================================

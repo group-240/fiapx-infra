@@ -10,6 +10,18 @@ variable "cluster_name" {
   default     = "fiapx-cluster"
 }
 
+variable "eks_cluster_role_name" {
+  description = "Pre-created IAM role name for EKS cluster (AWS Academy)"
+  type        = string
+  default     = "LabEksClusterRole"
+}
+
+variable "eks_node_role_name" {
+  description = "Pre-created IAM role name for EKS node group (AWS Academy)"
+  type        = string
+  default     = "LabEksNodeRole"
+}
+
 variable "db_username" {
   description = "RDS master username"
   type        = string

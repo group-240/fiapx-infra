@@ -22,7 +22,6 @@ jobs:
       sqs_queue_url: ${{ steps.tf_outputs.outputs.sqs_queue_url }}
       s3_bucket_name: ${{ steps.tf_outputs.outputs.s3_bucket_name }}
       rds_endpoint: ${{ steps.tf_outputs.outputs.rds_endpoint }}
-      irsa_role_arn: ${{ steps.tf_outputs.outputs.irsa_role_arn }}
 
     steps:
       - name: Checkout
@@ -95,7 +94,6 @@ jobs:
           echo "sqs_queue_url=$(terraform output -raw sqs_queue_url)" >> $GITHUB_OUTPUT
           echo "s3_bucket_name=$(terraform output -raw s3_bucket_name)" >> $GITHUB_OUTPUT
           echo "rds_endpoint=$(terraform output -raw rds_endpoint)" >> $GITHUB_OUTPUT
-          echo "irsa_role_arn=$(terraform output -raw irsa_role_arn)" >> $GITHUB_OUTPUT
 
   apply_k8s:
     name: Apply K8s Manifests
@@ -133,10 +131,12 @@ jobs:
             -e "s|\${DB_USER}|${{ secrets.DB_USER }}|g" \
             -e "s|\${DB_PASSWORD}|${{ secrets.DB_PASSWORD }}|g" \
             -e "s|\${AWS_REGION}|${{ secrets.AWS_REGION }}|g" \
+            -e "s|\${AWS_ACCESS_KEY_ID}|${{ secrets.AWS_ACCESS_KEY_ID }}|g" \
+            -e "s|\${AWS_SECRET_ACCESS_KEY}|${{ secrets.AWS_SECRET_ACCESS_KEY }}|g" \
+            -e "s|\${AWS_SESSION_TOKEN}|${{ secrets.AWS_SESSION_TOKEN }}|g" \
             -e "s|\${SQS_QUEUE_URL}|${{ needs.terraform.outputs.sqs_queue_url }}|g" \
             -e "s|\${S3_BUCKET}|${{ needs.terraform.outputs.s3_bucket_name }}|g" \
             -e "s|\${NOTIFICATION_URL}|http://fiapx:8888/api/capturas/update-status|g" \
-            -e "s|\${IRSA_ROLE_ARN}|${{ needs.terraform.outputs.irsa_role_arn }}|g" \
             k8s/secrets.yaml | kubectl apply -f -
 
       - name: Apply Ingress

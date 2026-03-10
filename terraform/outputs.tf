@@ -44,7 +44,3 @@ output "aws_region" {
   value       = var.aws_region
 }
 
-output "irsa_role_arn" {
-  description = "IAM role ARN for K8s service account (IRSA)"
-  value       = aws_iam_role.fiapx_irsa.arn
-}
