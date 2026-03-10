@@ -1,0 +1,119 @@
+name: Infrastructure — Terraform + K8s
+
+on:
+  push:
+    branches: [fix]
+  workflow_dispatch:
+
+env:
+  AWS_REGION: ${{ secrets.AWS_REGION }}
+  TF_VAR_aws_region: ${{ secrets.AWS_REGION }}
+  TF_VAR_db_password: ${{ secrets.DB_PASSWORD }}
+  TF_VAR_email_user: ${{ secrets.EMAIL_USER }}
+  TF_VAR_email_password: ${{ secrets.EMAIL_PWD }}
+
+jobs:
+  terraform:
+    name: Terraform Apply
+    runs-on: ubuntu-latest
+    outputs:
+      eks_cluster_name: ${{ steps.tf_outputs.outputs.eks_cluster_name }}
+      ecr_fiapx_url: ${{ steps.tf_outputs.outputs.ecr_fiapx_url }}
+      ecr_processing_url: ${{ steps.tf_outputs.outputs.ecr_processing_url }}
+      sqs_queue_url: ${{ steps.tf_outputs.outputs.sqs_queue_url }}
+      s3_bucket_name: ${{ steps.tf_outputs.outputs.s3_bucket_name }}
+      rds_endpoint: ${{ steps.tf_outputs.outputs.rds_endpoint }}
+      irsa_role_arn: ${{ steps.tf_outputs.outputs.irsa_role_arn }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+
+      - name: Terraform Init
+        working-directory: terraform
+        run: terraform init
+
+      - name: Terraform Validate
+        working-directory: terraform
+        run: terraform validate
+
+      - name: Terraform Plan
+        working-directory: terraform
+        run: terraform plan -out=tfplan
+
+      - name: Terraform Apply
+        working-directory: terraform
+        run: terraform apply -auto-approve tfplan
+
+      - name: Extract Terraform outputs
+        id: tf_outputs
+        working-directory: terraform
+        run: |
+          echo "eks_cluster_name=$(terraform output -raw eks_cluster_name)" >> $GITHUB_OUTPUT
+          echo "ecr_fiapx_url=$(terraform output -raw ecr_fiapx_url)" >> $GITHUB_OUTPUT
+          echo "ecr_processing_url=$(terraform output -raw ecr_processing_url)" >> $GITHUB_OUTPUT
+          echo "sqs_queue_url=$(terraform output -raw sqs_queue_url)" >> $GITHUB_OUTPUT
+          echo "s3_bucket_name=$(terraform output -raw s3_bucket_name)" >> $GITHUB_OUTPUT
+          echo "rds_endpoint=$(terraform output -raw rds_endpoint)" >> $GITHUB_OUTPUT
+          echo "irsa_role_arn=$(terraform output -raw irsa_role_arn)" >> $GITHUB_OUTPUT
+
+  apply_k8s:
+    name: Apply K8s Manifests
+    runs-on: ubuntu-latest
+    needs: terraform
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Configure kubectl
+        run: |
+          aws eks update-kubeconfig \
+            --region ${{ secrets.AWS_REGION }} \
+            --name ${{ needs.terraform.outputs.eks_cluster_name }}
+
+      - name: Apply namespace
+        run: kubectl apply -f k8s/namespace.yaml
+
+      - name: Create/Update K8s Secrets
+        run: |
+          RDS_ENDPOINT="${{ needs.terraform.outputs.rds_endpoint }}"
+          DB_HOST=$(echo "$RDS_ENDPOINT" | cut -d: -f1)
+
+          sed \
+            -e "s|\${DB_URL}|jdbc:postgresql://${DB_HOST}:5432/${{ secrets.DB_NAME }}|g" \
+            -e "s|\${DB_USER}|${{ secrets.DB_USER }}|g" \
+            -e "s|\${DB_PASSWORD}|${{ secrets.DB_PASSWORD }}|g" \
+            -e "s|\${AWS_REGION}|${{ secrets.AWS_REGION }}|g" \
+            -e "s|\${SQS_QUEUE_URL}|${{ needs.terraform.outputs.sqs_queue_url }}|g" \
+            -e "s|\${S3_BUCKET}|${{ needs.terraform.outputs.s3_bucket_name }}|g" \
+            -e "s|\${NOTIFICATION_URL}|http://fiapx:8888/api/capturas/update-status|g" \
+            -e "s|\${EMAIL_USER}|${{ secrets.EMAIL_USER }}|g" \
+            -e "s|\${EMAIL_PWD}|${{ secrets.EMAIL_PWD }}|g" \
+            -e "s|\${IRSA_ROLE_ARN}|${{ needs.terraform.outputs.irsa_role_arn }}|g" \
+            k8s/secrets.yaml | kubectl apply -f -
+
+      - name: Apply Ingress
+        run: kubectl apply -f k8s/ingress.yaml
+
+      - name: Apply Grafana Ingress
+        run: kubectl apply -f k8s/monitoring/ingress-grafana.yaml

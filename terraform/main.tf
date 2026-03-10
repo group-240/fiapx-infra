@@ -1,0 +1,439 @@
+# ============================================================
+# DATA SOURCES
+# ============================================================
+data "aws_availability_zones" "available" {}
+
+data "aws_caller_identity" "current" {}
+
+data "aws_iam_policy_document" "eks_assume_role" {
+  statement {
+    actions = ["sts:AssumeRole"]
+    principals {
+      type        = "Service"
+      identifiers = ["eks.amazonaws.com"]
+    }
+  }
+}
+
+data "aws_iam_policy_document" "ec2_assume_role" {
+  statement {
+    actions = ["sts:AssumeRole"]
+    principals {
+      type        = "Service"
+      identifiers = ["ec2.amazonaws.com"]
+    }
+  }
+}
+
+# ============================================================
+# VPC
+# ============================================================
+resource "aws_vpc" "fiapx" {
+  cidr_block           = "10.0.0.0/16"
+  enable_dns_hostnames = true
+  enable_dns_support   = true
+
+  tags = { Name = "fiapx-vpc" }
+}
+
+resource "aws_internet_gateway" "fiapx" {
+  vpc_id = aws_vpc.fiapx.id
+  tags   = { Name = "fiapx-igw" }
+}
+
+resource "aws_subnet" "public" {
+  count                   = 2
+  vpc_id                  = aws_vpc.fiapx.id
+  cidr_block              = "10.0.${count.index}.0/24"
+  availability_zone       = data.aws_availability_zones.available.names[count.index]
+  map_public_ip_on_launch = true
+
+  tags = {
+    Name                                        = "fiapx-public-${count.index}"
+    "kubernetes.io/role/elb"                    = "1"
+    "kubernetes.io/cluster/${var.cluster_name}" = "shared"
+  }
+}
+
+resource "aws_subnet" "private" {
+  count             = 2
+  vpc_id            = aws_vpc.fiapx.id
+  cidr_block        = "10.0.${count.index + 10}.0/24"
+  availability_zone = data.aws_availability_zones.available.names[count.index]
+
+  tags = {
+    Name                                        = "fiapx-private-${count.index}"
+    "kubernetes.io/role/internal-elb"           = "1"
+    "kubernetes.io/cluster/${var.cluster_name}" = "shared"
+  }
+}
+
+resource "aws_eip" "nat" {
+  count  = 2
+  domain = "vpc"
+  tags   = { Name = "fiapx-nat-eip-${count.index}" }
+}
+
+resource "aws_nat_gateway" "fiapx" {
+  count         = 2
+  allocation_id = aws_eip.nat[count.index].id
+  subnet_id     = aws_subnet.public[count.index].id
+  tags          = { Name = "fiapx-nat-${count.index}" }
+  depends_on    = [aws_internet_gateway.fiapx]
+}
+
+resource "aws_route_table" "public" {
+  vpc_id = aws_vpc.fiapx.id
+  route {
+    cidr_block = "0.0.0.0/0"
+    gateway_id = aws_internet_gateway.fiapx.id
+  }
+  tags = { Name = "fiapx-public-rt" }
+}
+
+resource "aws_route_table_association" "public" {
+  count          = 2
+  subnet_id      = aws_subnet.public[count.index].id
+  route_table_id = aws_route_table.public.id
+}
+
+resource "aws_route_table" "private" {
+  count  = 2
+  vpc_id = aws_vpc.fiapx.id
+  route {
+    cidr_block     = "0.0.0.0/0"
+    nat_gateway_id = aws_nat_gateway.fiapx[count.index].id
+  }
+  tags = { Name = "fiapx-private-rt-${count.index}" }
+}
+
+resource "aws_route_table_association" "private" {
+  count          = 2
+  subnet_id      = aws_subnet.private[count.index].id
+  route_table_id = aws_route_table.private[count.index].id
+}
+
+# ============================================================
+# SECURITY GROUPS
+# ============================================================
+resource "aws_security_group" "eks_cluster" {
+  name        = "fiapx-eks-cluster-sg"
+  description = "EKS cluster security group"
+  vpc_id      = aws_vpc.fiapx.id
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = { Name = "fiapx-eks-cluster-sg" }
+}
+
+resource "aws_security_group" "rds" {
+  name        = "fiapx-rds-sg"
+  description = "RDS security group - allow EKS nodes only"
+  vpc_id      = aws_vpc.fiapx.id
+
+  ingress {
+    from_port       = 5432
+    to_port         = 5432
+    protocol        = "tcp"
+    security_groups = [aws_security_group.eks_cluster.id]
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = { Name = "fiapx-rds-sg" }
+}
+
+# ============================================================
+# EKS CLUSTER
+# ============================================================
+resource "aws_iam_role" "eks_cluster" {
+  name               = "fiapx-eks-cluster-role"
+  assume_role_policy = data.aws_iam_policy_document.eks_assume_role.json
+}
+
+resource "aws_iam_role_policy_attachment" "eks_cluster_policy" {
+  role       = aws_iam_role.eks_cluster.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonEKSClusterPolicy"
+}
+
+resource "aws_eks_cluster" "fiapx" {
+  name     = var.cluster_name
+  role_arn = aws_iam_role.eks_cluster.arn
+  version  = "1.29"
+
+  vpc_config {
+    subnet_ids              = concat(aws_subnet.public[*].id, aws_subnet.private[*].id)
+    security_group_ids      = [aws_security_group.eks_cluster.id]
+    endpoint_public_access  = true
+    endpoint_private_access = true
+  }
+
+  depends_on = [aws_iam_role_policy_attachment.eks_cluster_policy]
+}
+
+resource "aws_iam_role" "eks_node" {
+  name               = "fiapx-eks-node-role"
+  assume_role_policy = data.aws_iam_policy_document.ec2_assume_role.json
+}
+
+resource "aws_iam_role_policy_attachment" "eks_worker_node" {
+  role       = aws_iam_role.eks_node.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy"
+}
+
+resource "aws_iam_role_policy_attachment" "eks_cni" {
+  role       = aws_iam_role.eks_node.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy"
+}
+
+resource "aws_iam_role_policy_attachment" "eks_ecr" {
+  role       = aws_iam_role.eks_node.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"
+}
+
+resource "aws_eks_node_group" "fiapx" {
+  cluster_name    = aws_eks_cluster.fiapx.name
+  node_group_name = "fiapx-nodes"
+  node_role_arn   = aws_iam_role.eks_node.arn
+  subnet_ids      = aws_subnet.private[*].id
+  instance_types  = [var.node_instance_type]
+
+  scaling_config {
+    desired_size = var.node_desired_size
+    min_size     = var.node_min_size
+    max_size     = var.node_max_size
+  }
+
+  update_config {
+    max_unavailable = 1
+  }
+
+  depends_on = [
+    aws_iam_role_policy_attachment.eks_worker_node,
+    aws_iam_role_policy_attachment.eks_cni,
+    aws_iam_role_policy_attachment.eks_ecr,
+  ]
+}
+
+# ============================================================
+# IRSA — IAM Role for Service Account (S3 + SQS sem credenciais nos pods)
+# ============================================================
+data "tls_certificate" "eks" {
+  url = aws_eks_cluster.fiapx.identity[0].oidc[0].issuer
+}
+
+resource "aws_iam_openid_connect_provider" "eks" {
+  client_id_list  = ["sts.amazonaws.com"]
+  thumbprint_list = [data.tls_certificate.eks.certificates[0].sha1_fingerprint]
+  url             = aws_eks_cluster.fiapx.identity[0].oidc[0].issuer
+}
+
+data "aws_iam_policy_document" "irsa_assume_role" {
+  statement {
+    actions = ["sts:AssumeRoleWithWebIdentity"]
+    condition {
+      test     = "StringEquals"
+      variable = "${replace(aws_iam_openid_connect_provider.eks.url, "https://", "")}:sub"
+      values   = ["system:serviceaccount:fiapx:fiapx-sa"]
+    }
+    principals {
+      type        = "Federated"
+      identifiers = [aws_iam_openid_connect_provider.eks.arn]
+    }
+  }
+}
+
+resource "aws_iam_role" "fiapx_irsa" {
+  name               = "fiapx-irsa-role"
+  assume_role_policy = data.aws_iam_policy_document.irsa_assume_role.json
+}
+
+resource "aws_iam_policy" "fiapx_s3_sqs" {
+  name = "fiapx-s3-sqs-policy"
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "s3:PutObject", "s3:GetObject", "s3:DeleteObject", "s3:ListBucket"
+        ]
+        Resource = [
+          aws_s3_bucket.videos.arn,
+          "${aws_s3_bucket.videos.arn}/*"
+        ]
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "sqs:SendMessage", "sqs:ReceiveMessage", "sqs:DeleteMessage",
+          "sqs:GetQueueAttributes", "sqs:GetQueueUrl"
+        ]
+        Resource = [
+          aws_sqs_queue.processing.arn,
+          aws_sqs_queue.processing_dlq.arn
+        ]
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "fiapx_irsa_s3_sqs" {
+  role       = aws_iam_role.fiapx_irsa.name
+  policy_arn = aws_iam_policy.fiapx_s3_sqs.arn
+}
+
+# ============================================================
+# ECR
+# ============================================================
+resource "aws_ecr_repository" "fiapx" {
+  name                 = "fiapx"
+  image_tag_mutability = "MUTABLE"
+  force_delete         = true
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+}
+
+resource "aws_ecr_repository" "fiapx_ms_processing" {
+  name                 = "fiapx-ms-processing"
+  image_tag_mutability = "MUTABLE"
+  force_delete         = true
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+}
+
+# ============================================================
+# S3
+# ============================================================
+resource "aws_s3_bucket" "videos" {
+  bucket        = var.s3_bucket_name
+  force_destroy = true
+  tags          = { Name = "fiapx-videos" }
+}
+
+resource "aws_s3_bucket_public_access_block" "videos" {
+  bucket                  = aws_s3_bucket.videos.id
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+}
+
+resource "aws_s3_bucket_versioning" "videos" {
+  bucket = aws_s3_bucket.videos.id
+  versioning_configuration {
+    status = "Enabled"
+  }
+}
+
+# ============================================================
+# SQS
+# ============================================================
+resource "aws_sqs_queue" "processing_dlq" {
+  name                        = "fiapx-processing-dlq.fifo"
+  fifo_queue                  = true
+  content_based_deduplication = true
+  message_retention_seconds   = 1209600 # 14 days
+}
+
+resource "aws_sqs_queue" "processing" {
+  name                        = var.sqs_queue_name
+  fifo_queue                  = true
+  content_based_deduplication = true
+  visibility_timeout_seconds  = 300
+  message_retention_seconds   = 86400
+
+  redrive_policy = jsonencode({
+    deadLetterTargetArn = aws_sqs_queue.processing_dlq.arn
+    maxReceiveCount     = 3
+  })
+}
+
+# ============================================================
+# RDS PostgreSQL
+# ============================================================
+resource "aws_db_subnet_group" "fiapx" {
+  name       = "fiapx-db-subnet-group"
+  subnet_ids = aws_subnet.private[*].id
+}
+
+resource "aws_db_instance" "postgres" {
+  identifier              = "fiapx-postgres"
+  engine                  = "postgres"
+  engine_version          = "15"
+  instance_class          = "db.t3.micro"
+  allocated_storage       = 20
+  db_name                 = var.db_name
+  username                = var.db_username
+  password                = var.db_password
+  db_subnet_group_name    = aws_db_subnet_group.fiapx.name
+  vpc_security_group_ids  = [aws_security_group.rds.id]
+  skip_final_snapshot     = true
+  deletion_protection     = false
+  publicly_accessible     = false
+  backup_retention_period = 7
+}
+
+# ============================================================
+# HELM — ingress-nginx
+# ============================================================
+resource "helm_release" "ingress_nginx" {
+  name             = "ingress-nginx"
+  repository       = "https://kubernetes.github.io/ingress-nginx"
+  chart            = "ingress-nginx"
+  namespace        = "ingress-nginx"
+  create_namespace = true
+  version          = "4.9.1"
+
+  set {
+    name  = "controller.service.type"
+    value = "LoadBalancer"
+  }
+  set {
+    name  = "controller.service.annotations.service\\.beta\\.kubernetes\\.io/aws-load-balancer-type"
+    value = "nlb"
+  }
+
+  depends_on = [aws_eks_node_group.fiapx]
+}
+
+# ============================================================
+# HELM — Prometheus + Grafana (kube-prometheus-stack)
+# ============================================================
+resource "helm_release" "prometheus_stack" {
+  name             = "prometheus-stack"
+  repository       = "https://prometheus-community.github.io/helm-charts"
+  chart            = "kube-prometheus-stack"
+  namespace        = "monitoring"
+  create_namespace = true
+  version          = "57.2.0"
+
+  set {
+    name  = "grafana.adminPassword"
+    value = "fiapx-grafana"
+  }
+  set {
+    name  = "grafana.service.type"
+    value = "ClusterIP"
+  }
+  set {
+    name  = "prometheus.prometheusSpec.serviceMonitorSelectorNilUsesHelmValues"
+    value = "false"
+  }
+
+  depends_on = [aws_eks_node_group.fiapx]
+}
