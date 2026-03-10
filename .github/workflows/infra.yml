@@ -4,12 +4,23 @@ on:
   push:
     branches: [fix]
   workflow_dispatch:
+    inputs:
+      eks_cluster_role_name:
+        description: "IAM role name for EKS cluster (AWS Academy)"
+        required: false
+        default: "LabEksClusterRole"
+      eks_node_role_name:
+        description: "IAM role name for EKS node group (AWS Academy)"
+        required: false
+        default: "LabEksNodeRole"
 
 env:
   AWS_REGION: ${{ secrets.AWS_REGION }}
   TF_STATE_BUCKET: fiapx-terraform-state
   TF_VAR_aws_region: ${{ secrets.AWS_REGION }}
   TF_VAR_db_password: ${{ secrets.DB_PASSWORD }}
+  TF_VAR_eks_cluster_role_name: ${{ github.event.inputs.eks_cluster_role_name || 'LabEksClusterRole' }}
+  TF_VAR_eks_node_role_name: ${{ github.event.inputs.eks_node_role_name || 'LabEksNodeRole' }}
 
 jobs:
   terraform:
@@ -62,6 +73,25 @@ jobs:
           aws s3api put-bucket-encryption \
             --bucket "$TF_STATE_BUCKET" \
             --server-side-encryption-configuration '{"Rules":[{"ApplyServerSideEncryptionByDefault":{"SSEAlgorithm":"AES256"}}]}'
+
+      - name: Pre-check AWS identity and EKS roles
+        run: |
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          CALLER_ARN=$(aws sts get-caller-identity --query Arn --output text)
+          echo "AWS account: $ACCOUNT_ID"
+          echo "Caller ARN : $CALLER_ARN"
+          echo "EKS cluster role configured: $TF_VAR_eks_cluster_role_name"
+          echo "EKS node role configured   : $TF_VAR_eks_node_role_name"
+
+          aws iam get-role --role-name "$TF_VAR_eks_cluster_role_name" --query 'Role.Arn' --output text || {
+            echo "ERRO: role de cluster não encontrada: $TF_VAR_eks_cluster_role_name";
+            exit 1;
+          }
+
+          aws iam get-role --role-name "$TF_VAR_eks_node_role_name" --query 'Role.Arn' --output text || {
+            echo "ERRO: role de node não encontrada: $TF_VAR_eks_node_role_name";
+            exit 1;
+          }
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
