@@ -1,0 +1,92 @@
+name: Bootstrap — Terraform State Bucket
+
+on:
+  workflow_dispatch:
+    inputs:
+      bucket_name:
+        description: 'Nome do bucket S3 para o estado do Terraform'
+        required: false
+        default: 'fiapx-terraform-state'
+      aws_region:
+        description: 'Região AWS'
+        required: false
+        default: 'us-east-1'
+
+jobs:
+  bootstrap:
+    name: Criar bucket de state do Terraform
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ github.event.inputs.aws_region }}
+
+      - name: Criar bucket S3 (idempotente)
+        env:
+          BUCKET: ${{ github.event.inputs.bucket_name }}
+          REGION: ${{ github.event.inputs.aws_region }}
+        run: |
+          if aws s3api head-bucket --bucket "$BUCKET" 2>/dev/null; then
+            echo "Bucket $BUCKET já existe, pulando criação."
+          else
+            if [ "$REGION" = "us-east-1" ]; then
+              aws s3api create-bucket --bucket "$BUCKET" --region "$REGION"
+            else
+              aws s3api create-bucket \
+                --bucket "$BUCKET" \
+                --region "$REGION" \
+                --create-bucket-configuration LocationConstraint="$REGION"
+            fi
+            echo "Bucket $BUCKET criado."
+          fi
+
+      - name: Habilitar versionamento
+        env:
+          BUCKET: ${{ github.event.inputs.bucket_name }}
+        run: |
+          aws s3api put-bucket-versioning \
+            --bucket "$BUCKET" \
+            --versioning-configuration Status=Enabled
+          echo "Versionamento habilitado."
+
+      - name: Bloquear acesso público
+        env:
+          BUCKET: ${{ github.event.inputs.bucket_name }}
+        run: |
+          aws s3api put-public-access-block \
+            --bucket "$BUCKET" \
+            --public-access-block-configuration \
+              "BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true"
+          echo "Acesso público bloqueado."
+
+      - name: Habilitar criptografia (AES-256)
+        env:
+          BUCKET: ${{ github.event.inputs.bucket_name }}
+        run: |
+          aws s3api put-bucket-encryption \
+            --bucket "$BUCKET" \
+            --server-side-encryption-configuration '{
+              "Rules": [{
+                "ApplyServerSideEncryptionByDefault": {
+                  "SSEAlgorithm": "AES256"
+                }
+              }]
+            }'
+          echo "Criptografia AES-256 habilitada."
+
+      - name: Resumo
+        env:
+          BUCKET: ${{ github.event.inputs.bucket_name }}
+          REGION: ${{ github.event.inputs.aws_region }}
+        run: |
+          echo "=========================================="
+          echo "Bootstrap concluído!"
+          echo "  Bucket : $BUCKET"
+          echo "  Região : $REGION"
+          echo ""
+          echo "Próximo passo: execute o workflow infra.yml"
+          echo "=========================================="
