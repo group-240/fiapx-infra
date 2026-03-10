@@ -40,18 +40,6 @@ variable "sqs_queue_name" {
   default     = "fiapx-processing.fifo"
 }
 
-variable "email_user" {
-  description = "SMTP email user"
-  type        = string
-  sensitive   = true
-}
-
-variable "email_password" {
-  description = "SMTP email password"
-  type        = string
-  sensitive   = true
-}
-
 variable "node_instance_type" {
   description = "EC2 instance type for EKS nodes"
   type        = string

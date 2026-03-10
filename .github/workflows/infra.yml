@@ -10,8 +10,6 @@ env:
   TF_STATE_BUCKET: fiapx-terraform-state
   TF_VAR_aws_region: ${{ secrets.AWS_REGION }}
   TF_VAR_db_password: ${{ secrets.DB_PASSWORD }}
-  TF_VAR_email_user: ${{ secrets.EMAIL_USER }}
-  TF_VAR_email_password: ${{ secrets.EMAIL_PWD }}
 
 jobs:
   terraform:
@@ -136,8 +134,6 @@ jobs:
             -e "s|\${SQS_QUEUE_URL}|${{ needs.terraform.outputs.sqs_queue_url }}|g" \
             -e "s|\${S3_BUCKET}|${{ needs.terraform.outputs.s3_bucket_name }}|g" \
             -e "s|\${NOTIFICATION_URL}|http://fiapx:8888/api/capturas/update-status|g" \
-            -e "s|\${EMAIL_USER}|${{ secrets.EMAIL_USER }}|g" \
-            -e "s|\${EMAIL_PWD}|${{ secrets.EMAIL_PWD }}|g" \
             -e "s|\${IRSA_ROLE_ARN}|${{ needs.terraform.outputs.irsa_role_arn }}|g" \
             k8s/secrets.yaml | kubectl apply -f -
 
