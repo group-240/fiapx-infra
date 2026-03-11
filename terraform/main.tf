@@ -251,8 +251,8 @@ resource "helm_release" "rabbitmq" {
       value = "monitoring"
     },
     {
-      name  = "persistence.size"
-      value = "2Gi"
+      name  = "persistence.enabled"
+      value = "false"
     }
   ]
 
