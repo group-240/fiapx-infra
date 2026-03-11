@@ -264,7 +264,10 @@ resource "helm_release" "rabbitmq" {
     }
   ]
 
-  depends_on = [aws_eks_node_group.fiapx]
+  depends_on = [
+    aws_eks_node_group.fiapx,
+    helm_release.prometheus_stack
+  ]
 }
 
 # ============================================================
