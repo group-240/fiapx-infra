@@ -181,6 +181,9 @@ jobs:
 
           sed \
             -e "s|\${DB_URL}|jdbc:postgresql://${DB_HOST}:5432/${{ secrets.DB_NAME }}|g" \
+            -e "s|\${DB_HOST}|${DB_HOST}|g" \
+            -e "s|\${DB_PORT}|5432|g" \
+            -e "s|\${DB_NAME}|${{ secrets.DB_NAME }}|g" \
             -e "s|\${DB_USER}|${{ secrets.DB_USER }}|g" \
             -e "s|\${DB_PASSWORD}|${{ secrets.DB_PASSWORD }}|g" \
             -e "s|\${AWS_REGION}|${{ secrets.AWS_REGION }}|g" \
@@ -192,6 +195,9 @@ jobs:
             -e "s|\${RABBITMQ_HOST}|${{ needs.terraform.outputs.rabbitmq_host }}|g" \
             -e "s|\${RABBITMQ_USER}|${{ secrets.RABBITMQ_USER }}|g" \
             -e "s|\${RABBITMQ_PASSWORD}|${{ secrets.RABBITMQ_PASSWORD }}|g" \
+            -e "s|\${RABBITMQ_QUEUE}|${{ secrets.RABBITMQ_QUEUE_NAME }}|g" \
+            -e "s|\${RABBITMQ_EXCHANGE}|${{ secrets.RABBITMQ_EXCHANGE_NAME }}|g" \
+            -e "s|\${RABBITMQ_ROUTING_KEY}|${{ secrets.RABBITMQ_ROUTING_KEY }}|g" \
             k8s/secrets.yaml | kubectl apply -f -
 
       - name: Apply Ingress
