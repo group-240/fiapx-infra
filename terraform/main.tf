@@ -231,6 +231,10 @@ resource "helm_release" "rabbitmq" {
 
   set = [
     {
+      name  = "image.registry"
+      value = "ghcr.io"
+    },
+    {
       name  = "auth.username"
       value = var.rabbitmq_user
     },
