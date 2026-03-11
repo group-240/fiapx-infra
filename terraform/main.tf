@@ -225,30 +225,32 @@ resource "helm_release" "rabbitmq" {
   create_namespace = true
   version          = "16.0.14"
 
-  set {
-    name  = "auth.username"
-    value = var.rabbitmq_user
-  }
-  set {
-    name  = "auth.password"
-    value = var.rabbitmq_password
-  }
-  set {
-    name  = "metrics.enabled"
-    value = "true"
-  }
-  set {
-    name  = "metrics.serviceMonitor.enabled"
-    value = "true"
-  }
-  set {
-    name  = "metrics.serviceMonitor.namespace"
-    value = "monitoring"
-  }
-  set {
-    name  = "persistence.size"
-    value = "2Gi"
-  }
+  set = [
+    {
+      name  = "auth.username"
+      value = var.rabbitmq_user
+    },
+    {
+      name  = "auth.password"
+      value = var.rabbitmq_password
+    },
+    {
+      name  = "metrics.enabled"
+      value = "true"
+    },
+    {
+      name  = "metrics.serviceMonitor.enabled"
+      value = "true"
+    },
+    {
+      name  = "metrics.serviceMonitor.namespace"
+      value = "monitoring"
+    },
+    {
+      name  = "persistence.size"
+      value = "2Gi"
+    }
+  ]
 
   depends_on = [aws_eks_node_group.fiapx]
 }
@@ -289,14 +291,16 @@ resource "helm_release" "ingress_nginx" {
   create_namespace = true
   version          = "4.9.1"
 
-  set {
-    name  = "controller.service.type"
-    value = "LoadBalancer"
-  }
-  set {
-    name  = "controller.service.annotations.service\\.beta\\.kubernetes\\.io/aws-load-balancer-type"
-    value = "nlb"
-  }
+  set = [
+    {
+      name  = "controller.service.type"
+      value = "LoadBalancer"
+    },
+    {
+      name  = "controller.service.annotations.service\\.beta\\.kubernetes\\.io/aws-load-balancer-type"
+      value = "nlb"
+    }
+  ]
 
   depends_on = [aws_eks_node_group.fiapx]
 }
@@ -312,18 +316,20 @@ resource "helm_release" "prometheus_stack" {
   create_namespace = true
   version          = "57.2.0"
 
-  set {
-    name  = "grafana.adminPassword"
-    value = "fiapx-grafana"
-  }
-  set {
-    name  = "grafana.service.type"
-    value = "ClusterIP"
-  }
-  set {
-    name  = "prometheus.prometheusSpec.serviceMonitorSelectorNilUsesHelmValues"
-    value = "false"
-  }
+  set = [
+    {
+      name  = "grafana.adminPassword"
+      value = "fiapx-grafana"
+    },
+    {
+      name  = "grafana.service.type"
+      value = "ClusterIP"
+    },
+    {
+      name  = "prometheus.prometheusSpec.serviceMonitorSelectorNilUsesHelmValues"
+      value = "false"
+    }
+  ]
 
   depends_on = [aws_eks_node_group.fiapx]
 }
