@@ -227,6 +227,7 @@ resource "helm_release" "rabbitmq" {
   upgrade_install  = true
   atomic           = true
   cleanup_on_fail  = true
+  timeout          = 600
 
   set = [
     {
