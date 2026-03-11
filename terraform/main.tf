@@ -219,7 +219,7 @@ resource "aws_s3_bucket_versioning" "videos" {
 # ============================================================
 resource "helm_release" "rabbitmq" {
   name             = "rabbitmq"
-  repository       = "https://charts.bitnami.com/bitnami"
+  repository       = "oci://registry-1.docker.io/bitnamicharts"
   chart            = "rabbitmq"
   namespace        = "rabbitmq"
   create_namespace = true
