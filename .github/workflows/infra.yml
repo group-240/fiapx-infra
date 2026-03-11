@@ -208,3 +208,18 @@ jobs:
 
       - name: Apply Grafana Ingress
         run: kubectl apply -f k8s/monitoring/ingress-grafana.yaml
+
+      - name: Configure Grafana root_url/domain for ingress
+        run: |
+          GRAFANA_LB_HOST=$(kubectl get ingress grafana-ingress -n monitoring -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
+          if [ -z "$GRAFANA_LB_HOST" ]; then
+            echo "Grafana ingress hostname ainda não disponível; mantendo configuração atual."
+            exit 0
+          fi
+
+          kubectl set env deployment/prometheus-stack-grafana -n monitoring \
+            GF_SERVER_DOMAIN="$GRAFANA_LB_HOST" \
+            GF_SERVER_ROOT_URL="%(protocol)s://$GRAFANA_LB_HOST/grafana/" \
+            GF_SERVER_SERVE_FROM_SUB_PATH="true"
+
+          kubectl rollout status deployment/prometheus-stack-grafana -n monitoring --timeout=180s
