@@ -355,6 +355,15 @@ resource "helm_release" "prometheus_stack" {
       name  = "grafana.service.type"
       value = "ClusterIP"
     },
+    # Necessário para o Grafana funcionar corretamente sob sub-path /grafana via ingress
+    {
+      name  = "grafana.grafana\\.ini.server.root_url"
+      value = "%(protocol)s://%(domain)s/grafana/"
+    },
+    {
+      name  = "grafana.grafana\\.ini.server.serve_from_sub_path"
+      value = "true"
+    },
     {
       name  = "prometheus.prometheusSpec.serviceMonitorSelectorNilUsesHelmValues"
       value = "false"
