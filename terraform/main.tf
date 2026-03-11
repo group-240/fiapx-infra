@@ -133,6 +133,21 @@ resource "aws_security_group" "rds" {
   tags = { Name = "fiapx-rds-sg" }
 }
 
+# Permite que os nodes EKS (SG managed do cluster) acessem o RDS.
+# O cluster_security_group_id é criado pelo EKS automaticamente e associado
+# tanto ao control plane quanto aos nodes — diferente do SG adicional acima.
+resource "aws_security_group_rule" "rds_from_eks_managed_sg" {
+  description              = "Allow EKS cluster/node managed SG to reach RDS on 5432"
+  type                     = "ingress"
+  from_port                = 5432
+  to_port                  = 5432
+  protocol                 = "tcp"
+  security_group_id        = aws_security_group.rds.id
+  source_security_group_id = aws_eks_cluster.fiapx.vpc_config[0].cluster_security_group_id
+
+  depends_on = [aws_eks_cluster.fiapx]
+}
+
 # ============================================================
 # EKS CLUSTER
 # ============================================================

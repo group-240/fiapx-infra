@@ -29,9 +29,13 @@ output "s3_bucket_name" {
 }
 
 output "rds_endpoint" {
-  description = "RDS PostgreSQL endpoint"
+  description = "RDS PostgreSQL endpoint (host:port)"
   value       = aws_db_instance.postgres.endpoint
-  sensitive   = true
+}
+
+output "rds_host" {
+  description = "RDS PostgreSQL hostname only (without port)"
+  value       = aws_db_instance.postgres.address
 }
 
 output "aws_region" {

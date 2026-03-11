@@ -35,6 +35,7 @@ jobs:
       rabbitmq_host: ${{ steps.tf_outputs.outputs.rabbitmq_host }}
       s3_bucket_name: ${{ steps.tf_outputs.outputs.s3_bucket_name }}
       rds_endpoint: ${{ steps.tf_outputs.outputs.rds_endpoint }}
+      rds_host: ${{ steps.tf_outputs.outputs.rds_host }}
 
     steps:
       - name: Checkout
@@ -147,6 +148,7 @@ jobs:
           echo "rabbitmq_host=$(terraform output -raw rabbitmq_host)" >> $GITHUB_OUTPUT
           echo "s3_bucket_name=$(terraform output -raw s3_bucket_name)" >> $GITHUB_OUTPUT
           echo "rds_endpoint=$(terraform output -raw rds_endpoint)" >> $GITHUB_OUTPUT
+          echo "rds_host=$(terraform output -raw rds_host)" >> $GITHUB_OUTPUT
 
   apply_k8s:
     name: Apply K8s Manifests
@@ -176,8 +178,9 @@ jobs:
 
       - name: Create/Update K8s Secrets
         run: |
-          RDS_ENDPOINT="${{ needs.terraform.outputs.rds_endpoint }}"
-          DB_HOST=$(echo "$RDS_ENDPOINT" | cut -d: -f1)
+          # rds_host vem diretamente do output Terraform (aws_db_instance.address, sem porta).
+          # Evita o problema de sensitive=true mascarar o valor entre jobs do GitHub Actions.
+          DB_HOST="${{ needs.terraform.outputs.rds_host }}"
 
           sed \
             -e "s|\${DB_URL}|jdbc:postgresql://${DB_HOST}:5432/${{ secrets.DB_NAME }}|g" \
