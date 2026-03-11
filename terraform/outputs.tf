@@ -18,14 +18,9 @@ output "ecr_processing_url" {
   value       = aws_ecr_repository.fiapx_ms_processing.repository_url
 }
 
-output "sqs_queue_url" {
-  description = "SQS FIFO queue URL"
-  value       = aws_sqs_queue.processing.url
-}
-
-output "sqs_dlq_url" {
-  description = "SQS dead-letter queue URL"
-  value       = aws_sqs_queue.processing_dlq.url
+output "rabbitmq_host" {
+  description = "RabbitMQ service hostname inside EKS"
+  value       = "rabbitmq.rabbitmq.svc.cluster.local"
 }
 
 output "s3_bucket_name" {

@@ -46,10 +46,16 @@ variable "s3_bucket_name" {
   default     = "fiapx-videos-bucket"
 }
 
-variable "sqs_queue_name" {
-  description = "SQS FIFO queue name"
+variable "rabbitmq_user" {
+  description = "RabbitMQ admin username"
   type        = string
-  default     = "fiapx-processing.fifo"
+  default     = "admin"
+}
+
+variable "rabbitmq_password" {
+  description = "RabbitMQ admin password"
+  type        = string
+  sensitive   = true
 }
 
 variable "node_instance_type" {

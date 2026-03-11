@@ -215,26 +215,42 @@ resource "aws_s3_bucket_versioning" "videos" {
 }
 
 # ============================================================
-# SQS
+# HELM — RabbitMQ (bitnami)
 # ============================================================
-resource "aws_sqs_queue" "processing_dlq" {
-  name                        = "fiapx-processing-dlq.fifo"
-  fifo_queue                  = true
-  content_based_deduplication = true
-  message_retention_seconds   = 1209600 # 14 days
-}
+resource "helm_release" "rabbitmq" {
+  name             = "rabbitmq"
+  repository       = "https://charts.bitnami.com/bitnami"
+  chart            = "rabbitmq"
+  namespace        = "rabbitmq"
+  create_namespace = true
+  version          = "12.12.1"
 
-resource "aws_sqs_queue" "processing" {
-  name                        = var.sqs_queue_name
-  fifo_queue                  = true
-  content_based_deduplication = true
-  visibility_timeout_seconds  = 300
-  message_retention_seconds   = 86400
+  set {
+    name  = "auth.username"
+    value = var.rabbitmq_user
+  }
+  set {
+    name  = "auth.password"
+    value = var.rabbitmq_password
+  }
+  set {
+    name  = "metrics.enabled"
+    value = "true"
+  }
+  set {
+    name  = "metrics.serviceMonitor.enabled"
+    value = "true"
+  }
+  set {
+    name  = "metrics.serviceMonitor.namespace"
+    value = "monitoring"
+  }
+  set {
+    name  = "persistence.size"
+    value = "2Gi"
+  }
 
-  redrive_policy = jsonencode({
-    deadLetterTargetArn = aws_sqs_queue.processing_dlq.arn
-    maxReceiveCount     = 3
-  })
+  depends_on = [aws_eks_node_group.fiapx]
 }
 
 # ============================================================
