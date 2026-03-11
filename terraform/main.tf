@@ -236,7 +236,7 @@ resource "helm_release" "rabbitmq" {
     },
     {
       name  = "image.registry"
-      value = "ghcr.io"
+      value = "public.ecr.aws"
     },
     {
       name  = "auth.username"
