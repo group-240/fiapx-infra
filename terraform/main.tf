@@ -225,6 +225,8 @@ resource "helm_release" "rabbitmq" {
   create_namespace = true
   version          = "16.0.14"
   upgrade_install  = true
+  atomic           = true
+  cleanup_on_fail  = true
 
   set = [
     {
