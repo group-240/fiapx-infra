@@ -231,6 +231,10 @@ resource "helm_release" "rabbitmq" {
 
   set = [
     {
+      name  = "global.security.allowInsecureImages"
+      value = "true"
+    },
+    {
       name  = "image.registry"
       value = "ghcr.io"
     },
