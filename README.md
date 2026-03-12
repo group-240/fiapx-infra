@@ -23,13 +23,13 @@ O diagrama detalhado está em: `architecture.mmd`
 
 ```mermaid
 flowchart TD
-    User[Cliente / Bruno / Insomnia] --> LB[Ingress NGINX - Load Balancer]
+    USER[Cliente / Bruno / Insomnia] --> LB[Ingress NGINX / Load Balancer]
 
-    LB --> API[fiapx API - Namespace fiapx]
-    LB --> GRAFANA[Grafana - /grafana]
+    LB --> API[fiapx API]
+    LB --> GRAFANA[Grafana /grafana]
 
     API --> RABBIT[(RabbitMQ)]
-    API --> S3[(S3 - Vídeos/Frames)]
+    API --> S3[(S3 - vídeos e frames)]
     API --> RDS[(RDS PostgreSQL)]
 
     RABBIT --> WORKER[fiapx-ms-processing]
@@ -41,12 +41,12 @@ flowchart TD
     PROM --> RABBIT
     GRAFANA --> PROM
 
-    subgraph AWS
-      subgraph VPC
-        subgraph EKS Cluster
+    subgraph AWS["AWS"]
+      subgraph VPC["VPC"]
+        subgraph EKS["EKS Cluster"]
+          LB
           API
           WORKER
-          LB
           PROM
           GRAFANA
         end
@@ -54,12 +54,12 @@ flowchart TD
         RDS
       end
       S3
-      ECR[(ECR fiapx + fiapx-ms-processing)]
+      ECR[(ECR - fiapx / fiapx-ms-processing)]
     end
 
-    GH[GitHub Actions] --> ECR
-    GH --> EKS Cluster
-    GH --> Terraform
+    GH[GitHub Actions] --> TF[Terraform / kubectl / Helm]
+    GH --> ECR
+    TF --> EKS
 ```
 
 ---
