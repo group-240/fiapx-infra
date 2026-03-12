@@ -173,6 +173,37 @@ jobs:
             --region ${{ secrets.AWS_REGION }} \
             --name ${{ needs.terraform.outputs.eks_cluster_name }}
 
+      - name: Ensure RDS access from EKS cluster SG
+        run: |
+          EKS_CLUSTER_SG=$(aws eks describe-cluster \
+            --name "${{ needs.terraform.outputs.eks_cluster_name }}" \
+            --region "${{ secrets.AWS_REGION }}" \
+            --query 'cluster.resourcesVpcConfig.clusterSecurityGroupId' \
+            --output text)
+
+          RDS_SG=$(aws rds describe-db-instances \
+            --db-instance-identifier fiapx-postgres \
+            --region "${{ secrets.AWS_REGION }}" \
+            --query 'DBInstances[0].VpcSecurityGroups[0].VpcSecurityGroupId' \
+            --output text)
+
+          RULE_EXISTS=$(aws ec2 describe-security-groups \
+            --group-ids "$RDS_SG" \
+            --region "${{ secrets.AWS_REGION }}" \
+            --query "length(SecurityGroups[0].IpPermissions[?FromPort==\`5432\` && UserIdGroupPairs[?GroupId=='$EKS_CLUSTER_SG']])" \
+            --output text)
+
+          if [ "$RULE_EXISTS" = "0" ]; then
+            aws ec2 authorize-security-group-ingress \
+              --group-id "$RDS_SG" \
+              --protocol tcp \
+              --port 5432 \
+              --source-group "$EKS_CLUSTER_SG" \
+              --region "${{ secrets.AWS_REGION }}"
+          else
+            echo "Regra do RDS para o SG do EKS já existe."
+          fi
+
       - name: Apply namespace
         run: kubectl apply -f k8s/namespace.yaml
 
@@ -181,6 +212,19 @@ jobs:
           # rds_host vem diretamente do output Terraform (aws_db_instance.address, sem porta).
           # Evita o problema de sensitive=true mascarar o valor entre jobs do GitHub Actions.
           DB_HOST="${{ needs.terraform.outputs.rds_host }}"
+
+          if [ -z "$DB_HOST" ] || [ "$DB_HOST" = "null" ] || [ "$DB_HOST" = "None" ]; then
+            DB_HOST=$(aws rds describe-db-instances \
+              --db-instance-identifier fiapx-postgres \
+              --region "${{ secrets.AWS_REGION }}" \
+              --query 'DBInstances[0].Endpoint.Address' \
+              --output text)
+          fi
+
+          if [ -z "$DB_HOST" ] || [ "$DB_HOST" = "null" ] || [ "$DB_HOST" = "None" ]; then
+            echo "ERRO: não foi possível resolver DB_HOST para o secret do Kubernetes."
+            exit 1
+          fi
 
           sed \
             -e "s|\${DB_URL}|jdbc:postgresql://${DB_HOST}:5432/${{ secrets.DB_NAME }}|g" \
@@ -202,6 +246,8 @@ jobs:
             -e "s|\${RABBITMQ_EXCHANGE}|${{ secrets.RABBITMQ_EXCHANGE_NAME }}|g" \
             -e "s|\${RABBITMQ_ROUTING_KEY}|${{ secrets.RABBITMQ_ROUTING_KEY }}|g" \
             k8s/secrets.yaml | kubectl apply -f -
+
+          kubectl get secret fiapx-secrets -n fiapx -o jsonpath='{.data.DB_HOST}' | base64 -d | grep -q .
 
       - name: Apply Ingress
         run: kubectl apply -f k8s/ingress.yaml
