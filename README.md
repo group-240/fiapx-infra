@@ -19,48 +19,115 @@ Este repositório entrega:
 
 ## Desenho completo da arquitetura
 
-O diagrama detalhado está em: `architecture.mmd`
+Para deixar a documentação mais clara, separei em **duas visões complementares**:
+
+- `architecture.mmd`: mostra **quem são os componentes** e como eles se conectam
+- `processing-sequence.mmd`: mostra **a ordem exata do fluxo E2E**, do upload até a conclusão
+
+### Visão estrutural da solução
 
 ```mermaid
-flowchart TD
-    USER[Cliente / Bruno / Insomnia] --> LB[Ingress NGINX / Load Balancer]
+flowchart LR
+  classDef actor fill:#E8F0FE,stroke:#1A73E8,color:#0B1F33,stroke-width:2px;
+  classDef service fill:#E6F4EA,stroke:#188038,color:#102A12,stroke-width:1.5px;
+  classDef data fill:#FEF7E0,stroke:#F9AB00,color:#3C2F00,stroke-width:1.5px;
+  classDef ops fill:#F3E8FD,stroke:#9334E6,color:#2A123C,stroke-width:1.5px;
 
-    LB --> API[fiapx API]
-    LB --> GRAFANA[Grafana /grafana]
+  USER[Cliente<br/>Bruno / Insomnia]
 
-    API --> RABBIT[(RabbitMQ)]
-    API --> S3[(S3 - vídeos e frames)]
-    API --> RDS[(RDS PostgreSQL)]
-
-    RABBIT --> WORKER[fiapx-ms-processing]
-    WORKER --> S3
-    WORKER --> API
-
-    PROM[Prometheus] --> API
-    PROM --> WORKER
-    PROM --> RABBIT
-    GRAFANA --> PROM
-
-    subgraph AWS["AWS"]
-      subgraph VPC["VPC"]
-        subgraph EKS["EKS Cluster"]
-          LB
-          API
-          WORKER
-          PROM
-          GRAFANA
-        end
-        RABBIT
-        RDS
-      end
-      S3
-      ECR[(ECR - fiapx / fiapx-ms-processing)]
+  subgraph PROD["Produção / AWS"]
+    subgraph RUNTIME["EKS / namespace fiapx"]
+      INGRESS[Ingress NGINX<br/>entrada única]
+      API[fiapx API<br/>valida upload e orquestra]
+      MQ[RabbitMQ<br/>fila de processamento]
+      WORKER[fiapx-ms-processing<br/>consumidor assíncrono]
+      PROM[Prometheus]
+      GRAF[Grafana]
     end
 
-    GH[GitHub Actions] --> TF[Terraform / kubectl / Helm]
-    GH --> ECR
-    TF --> EKS
+    subgraph DATA["Persistência e arquivos"]
+      RDS[(PostgreSQL RDS<br/>metadados e status)]
+      S3[(Amazon S3<br/>vídeo original e artefatos)]
+    end
+
+    subgraph DELIVERY["Entrega / operação"]
+      GH[GitHub Actions]
+      ECR[Amazon ECR]
+      OPS[Terraform / kubectl / Helm]
+    end
+  end
+
+  USER -->|1. Envia requisição| INGRESS
+  USER -. acompanha métricas .-> GRAF
+
+  INGRESS -->|2. Encaminha /api| API
+  API -->|3. Salva metadados e status| RDS
+  API -->|4. Salva vídeo original| S3
+  API -->|5. Publica evento| MQ
+
+  MQ -->|6. Dispara processamento assíncrono| WORKER
+  WORKER -->|7. Lê vídeo e grava frames/saídas| S3
+  WORKER -->|8. Notifica conclusão| API
+
+  PROM -->|coleta métricas| API
+  PROM -->|coleta métricas| WORKER
+  PROM -->|coleta métricas| MQ
+  GRAF -->|consulta dashboards| PROM
+
+  GH -->|build e push| ECR
+  GH -->|provisiona e aplica| OPS
+  OPS -->|deploy| API
+  OPS -->|deploy| WORKER
+  OPS -->|instala| MQ
+  OPS -->|instala| PROM
+  OPS -->|instala| GRAF
+
+  class USER actor;
+  class INGRESS,API,MQ,WORKER,PROM,GRAF service;
+  class RDS,S3 data;
+  class GH,ECR,OPS ops;
 ```
+
+### Fluxo E2E da captura até a conclusão
+
+```mermaid
+sequenceDiagram
+  autonumber
+  actor Cliente
+  participant Ingress as Ingress NGINX
+  participant API as fiapx API
+  participant DB as PostgreSQL RDS
+  participant S3 as Amazon S3
+  participant MQ as RabbitMQ
+  participant Worker as fiapx-ms-processing
+
+  Cliente->>Ingress: POST /api/capturas (multipart)
+  Ingress->>API: Encaminha upload
+  API->>DB: Cria registro da captura
+  API->>S3: Salva vídeo original
+  API->>MQ: Publica mensagem de processamento
+
+  Note over API,MQ: Daqui em diante o fluxo é assíncrono
+
+  Worker->>MQ: Consome mensagem
+  Worker->>S3: Lê vídeo original
+  Worker->>Worker: Processa vídeo com FFmpeg/JavaCV
+  Worker->>S3: Salva frames e artefatos gerados
+  Worker->>API: Notifica conclusão/resultado
+  API->>DB: Atualiza status final
+  Cliente->>API: GET /api/capturas
+  API-->>Cliente: Retorna status e metadados
+```
+
+### Leitura rápida do fluxo
+
+1. O **upload entra pela API**
+2. A **API salva o vídeo no S3 diretamente**
+3. A **API grava status/metadados no PostgreSQL**
+4. A **API publica uma mensagem no RabbitMQ**
+5. O **worker consome a fila de forma assíncrona**
+6. O **worker lê do S3, processa e grava os artefatos de volta no S3**
+7. O **worker notifica a API**, que atualiza o status final
 
 ---
 

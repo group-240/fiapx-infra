@@ -1,0 +1,26 @@
+sequenceDiagram
+    autonumber
+    actor Cliente
+    participant Ingress as Ingress NGINX
+    participant API as fiapx API
+    participant DB as PostgreSQL RDS
+    participant S3 as Amazon S3
+    participant MQ as RabbitMQ
+    participant Worker as fiapx-ms-processing
+
+    Cliente->>Ingress: POST /api/capturas (multipart)
+    Ingress->>API: Encaminha upload
+    API->>DB: Cria registro da captura
+    API->>S3: Salva vídeo original
+    API->>MQ: Publica mensagem de processamento
+
+    Note over API,MQ: Daqui em diante o fluxo é assíncrono
+
+    Worker->>MQ: Consome mensagem
+    Worker->>S3: Lê vídeo original
+    Worker->>Worker: Processa vídeo com FFmpeg/JavaCV
+    Worker->>S3: Salva frames e artefatos gerados
+    Worker->>API: Notifica conclusão/resultado
+    API->>DB: Atualiza status final
+    Cliente->>API: GET /api/capturas
+    API-->>Cliente: Retorna status e metadados
