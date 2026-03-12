@@ -2,7 +2,7 @@ name: Infrastructure — Terraform + K8s
 
 on:
   push:
-    branches: [fix]
+    branches: [fix, main]
   workflow_dispatch:
     inputs:
       eks_cluster_role_name:
