@@ -1,0 +1,38 @@
+flowchart TD
+    User[Cliente / Bruno / Insomnia] --> LB[Ingress NGINX - Load Balancer]
+
+    LB --> API[fiapx API - Namespace fiapx]
+    LB --> GRAFANA[Grafana - /grafana]
+
+    API --> RABBIT[(RabbitMQ)]
+    API --> S3[(S3 - Vídeos/Frames)]
+    API --> RDS[(RDS PostgreSQL)]
+
+    RABBIT --> WORKER[fiapx-ms-processing]
+    WORKER --> S3
+    WORKER --> API
+
+    PROM[Prometheus] --> API
+    PROM --> WORKER
+    PROM --> RABBIT
+    GRAFANA --> PROM
+
+    subgraph AWS
+      subgraph VPC
+        subgraph EKS Cluster
+          API
+          WORKER
+          LB
+          PROM
+          GRAFANA
+        end
+        RABBIT
+        RDS
+      end
+      S3
+      ECR[(ECR fiapx + fiapx-ms-processing)]
+    end
+
+    GH[GitHub Actions] --> ECR
+    GH --> EKS Cluster
+    GH --> Terraform
