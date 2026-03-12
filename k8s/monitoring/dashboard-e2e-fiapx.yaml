@@ -1,0 +1,136 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-fiapx-e2e
+  namespace: monitoring
+  labels:
+    grafana_dashboard: "1"
+data:
+  fiapx-e2e-dashboard.json: |
+    {
+      "id": null,
+      "uid": "fiapx-e2e-overview",
+      "title": "FIAPX - End-to-End Overview",
+      "tags": ["fiapx", "e2e", "architecture"],
+      "timezone": "browser",
+      "schemaVersion": 39,
+      "version": 1,
+      "refresh": "15s",
+      "time": {
+        "from": "now-30m",
+        "to": "now"
+      },
+      "panels": [
+        {
+          "id": 1,
+          "type": "stat",
+          "title": "Pods Running (fiapx)",
+          "gridPos": { "h": 6, "w": 6, "x": 0, "y": 0 },
+          "targets": [
+            {
+              "expr": "sum(kube_pod_status_phase{namespace=\"fiapx\", phase=\"Running\"})",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "id": 2,
+          "type": "stat",
+          "title": "Pods Running (rabbitmq)",
+          "gridPos": { "h": 6, "w": 6, "x": 6, "y": 0 },
+          "targets": [
+            {
+              "expr": "sum(kube_pod_status_phase{namespace=\"rabbitmq\", phase=\"Running\"})",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "id": 3,
+          "type": "stat",
+          "title": "Ingress Req/s (fiapx)",
+          "gridPos": { "h": 6, "w": 6, "x": 12, "y": 0 },
+          "targets": [
+            {
+              "expr": "sum(rate(nginx_ingress_controller_requests{ingress=\"fiapx-ingress\"}[5m]))",
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps"
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 4,
+          "type": "stat",
+          "title": "RabbitMQ Consumers",
+          "gridPos": { "h": 6, "w": 6, "x": 18, "y": 0 },
+          "targets": [
+            {
+              "expr": "sum(rabbitmq_queue_consumers)",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "id": 5,
+          "type": "timeseries",
+          "title": "HTTP Requests by Status (fiapx ingress)",
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 6 },
+          "targets": [
+            {
+              "expr": "sum by (status) (rate(nginx_ingress_controller_requests{ingress=\"fiapx-ingress\"}[5m]))",
+              "legendFormat": "{{status}}",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "id": 6,
+          "type": "timeseries",
+          "title": "RabbitMQ Queue Depth",
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 6 },
+          "targets": [
+            {
+              "expr": "sum by (queue) (rabbitmq_queue_messages_ready)",
+              "legendFormat": "{{queue}}",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "id": 7,
+          "type": "timeseries",
+          "title": "RabbitMQ Publish vs Deliver (msg/s)",
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 14 },
+          "targets": [
+            {
+              "expr": "sum(rate(rabbitmq_queue_messages_published_total[5m]))",
+              "legendFormat": "published",
+              "refId": "A"
+            },
+            {
+              "expr": "sum(rate(rabbitmq_queue_messages_delivered_total[5m]))",
+              "legendFormat": "delivered",
+              "refId": "B"
+            }
+          ]
+        },
+        {
+          "id": 8,
+          "type": "timeseries",
+          "title": "Pod Restarts (fiapx namespaces)",
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 14 },
+          "targets": [
+            {
+              "expr": "sum by (namespace, pod) (rate(kube_pod_container_status_restarts_total{namespace=~\"fiapx|rabbitmq\"}[15m]))",
+              "legendFormat": "{{namespace}}/{{pod}}",
+              "refId": "A"
+            }
+          ]
+        }
+      ]
+    }

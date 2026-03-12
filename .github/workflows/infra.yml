@@ -209,6 +209,9 @@ jobs:
       - name: Apply Grafana Ingress
         run: kubectl apply -f k8s/monitoring/ingress-grafana.yaml
 
+      - name: Apply Grafana Dashboards
+        run: kubectl apply -f k8s/monitoring/dashboard-e2e-fiapx.yaml
+
       - name: Configure Grafana root_url/domain for ingress
         run: |
           GRAFANA_LB_HOST=$(kubectl get ingress grafana-ingress -n monitoring -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
