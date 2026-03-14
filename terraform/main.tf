@@ -372,3 +372,71 @@ resource "helm_release" "prometheus_stack" {
 
   depends_on = [aws_eks_node_group.fiapx]
 }
+
+# ============================================================
+# IRSA (LabRole) - OIDC Provider + Trust Relationship
+# ============================================================
+# Objetivo: permitir que ServiceAccounts do namespace fiapx
+# assumam a LabRole via AssumeRoleWithWebIdentity.
+
+data "tls_certificate" "eks_oidc" {
+  url = aws_eks_cluster.fiapx.identity[0].oidc[0].issuer
+}
+
+resource "aws_iam_openid_connect_provider" "eks" {
+  url             = aws_eks_cluster.fiapx.identity[0].oidc[0].issuer
+  client_id_list  = ["sts.amazonaws.com"]
+  thumbprint_list = [data.tls_certificate.eks_oidc.certificates[0].sha1_fingerprint]
+
+  tags = {
+    Name = "fiapx-eks-oidc"
+  }
+
+  depends_on = [aws_eks_cluster.fiapx]
+}
+
+data "aws_iam_policy_document" "labrole_irsa_trust" {
+  statement {
+    sid    = "AllowEKSIRSAForFiapxNamespace"
+    effect = "Allow"
+
+    actions = [
+      "sts:AssumeRoleWithWebIdentity"
+    ]
+
+    principals {
+      type        = "Federated"
+      identifiers = [aws_iam_openid_connect_provider.eks.arn]
+    }
+
+    condition {
+      test     = "StringEquals"
+      variable = "${replace(aws_eks_cluster.fiapx.identity[0].oidc[0].issuer, "https://", "")}:aud"
+      values   = ["sts.amazonaws.com"]
+    }
+
+    condition {
+      test     = "StringLike"
+      variable = "${replace(aws_eks_cluster.fiapx.identity[0].oidc[0].issuer, "https://", "")}:sub"
+      values = [
+        "system:serviceaccount:fiapx:fiapx-processing-sa",
+        "system:serviceaccount:fiapx:fiapx-sa"
+      ]
+    }
+  }
+}
+
+# AWS Academy não permite criar role nova em muitos cenários.
+# Então atualizamos a trust policy da role existente (LabRole).
+resource "terraform_data" "update_labrole_trust" {
+  triggers_replace = [
+    aws_iam_openid_connect_provider.eks.arn,
+    data.aws_iam_policy_document.labrole_irsa_trust.json
+  ]
+
+  provisioner "local-exec" {
+    command = "aws iam update-assume-role-policy --role-name LabRole --policy-document '${data.aws_iam_policy_document.labrole_irsa_trust.json}'"
+  }
+
+  depends_on = [aws_iam_openid_connect_provider.eks]
+}

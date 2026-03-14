@@ -43,3 +43,18 @@ output "aws_region" {
   value       = var.aws_region
 }
 
+output "eks_oidc_issuer" {
+  description = "EKS OIDC issuer URL"
+  value       = aws_eks_cluster.fiapx.identity[0].oidc[0].issuer
+}
+
+output "eks_oidc_provider_arn" {
+  description = "EKS IAM OIDC provider ARN"
+  value       = aws_iam_openid_connect_provider.eks.arn
+}
+
+output "irsa_labrole_target" {
+  description = "Role targeted for IRSA trust update"
+  value       = "LabRole"
+}
+
