@@ -11,15 +11,15 @@ variable "cluster_name" {
 }
 
 variable "eks_cluster_role_name" {
-  description = "Pre-created IAM role name for EKS cluster (AWS Academy)"
+  description = "IAM role name for EKS cluster execution (AWS Academy LabRole)"
   type        = string
-  default     = "LabEksClusterRole"
+  default     = "LabRole"
 }
 
 variable "eks_node_role_name" {
-  description = "Pre-created IAM role name for EKS node group (AWS Academy)"
+  description = "IAM role name for EKS node group execution (AWS Academy LabRole)"
   type        = string
-  default     = "LabEksNodeRole"
+  default     = "LabRole"
 }
 
 variable "db_username" {
