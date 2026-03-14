@@ -50,11 +50,11 @@ output "eks_oidc_issuer" {
 
 output "eks_oidc_provider_arn" {
   description = "EKS IAM OIDC provider ARN"
-  value       = aws_iam_openid_connect_provider.eks.arn
+  value       = var.enable_irsa ? aws_iam_openid_connect_provider.eks[0].arn : "IRSA_DISABLED"
 }
 
 output "irsa_labrole_target" {
   description = "Role targeted for IRSA trust update"
-  value       = "LabRole"
+  value       = var.enable_irsa ? "LabRole" : "IRSA_DISABLED"
 }
 

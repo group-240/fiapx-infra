@@ -78,3 +78,9 @@ variable "node_desired_size" {
   type    = number
   default = 2
 }
+
+variable "enable_irsa" {
+  description = "Enable IRSA resources (OIDC provider + LabRole trust update). Disable in AWS Academy accounts that deny IAM OIDC/trust changes."
+  type        = bool
+  default     = false
+}

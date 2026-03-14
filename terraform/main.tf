@@ -380,13 +380,15 @@ resource "helm_release" "prometheus_stack" {
 # assumam a LabRole via AssumeRoleWithWebIdentity.
 
 data "tls_certificate" "eks_oidc" {
+  count = var.enable_irsa ? 1 : 0
   url = aws_eks_cluster.fiapx.identity[0].oidc[0].issuer
 }
 
 resource "aws_iam_openid_connect_provider" "eks" {
+  count            = var.enable_irsa ? 1 : 0
   url             = aws_eks_cluster.fiapx.identity[0].oidc[0].issuer
   client_id_list  = ["sts.amazonaws.com"]
-  thumbprint_list = [data.tls_certificate.eks_oidc.certificates[0].sha1_fingerprint]
+  thumbprint_list = [data.tls_certificate.eks_oidc[0].certificates[0].sha1_fingerprint]
 
   tags = {
     Name = "fiapx-eks-oidc"
@@ -396,6 +398,7 @@ resource "aws_iam_openid_connect_provider" "eks" {
 }
 
 data "aws_iam_policy_document" "labrole_irsa_trust" {
+  count = var.enable_irsa ? 1 : 0
   statement {
     sid    = "AllowEKSIRSAForFiapxNamespace"
     effect = "Allow"
@@ -406,7 +409,7 @@ data "aws_iam_policy_document" "labrole_irsa_trust" {
 
     principals {
       type        = "Federated"
-      identifiers = [aws_iam_openid_connect_provider.eks.arn]
+      identifiers = [aws_iam_openid_connect_provider.eks[0].arn]
     }
 
     condition {
@@ -429,14 +432,15 @@ data "aws_iam_policy_document" "labrole_irsa_trust" {
 # AWS Academy não permite criar role nova em muitos cenários.
 # Então atualizamos a trust policy da role existente (LabRole).
 resource "terraform_data" "update_labrole_trust" {
+  count = var.enable_irsa ? 1 : 0
   triggers_replace = [
-    aws_iam_openid_connect_provider.eks.arn,
-    data.aws_iam_policy_document.labrole_irsa_trust.json
+    aws_iam_openid_connect_provider.eks[0].arn,
+    data.aws_iam_policy_document.labrole_irsa_trust[0].json
   ]
 
   provisioner "local-exec" {
-    command = "aws iam update-assume-role-policy --role-name LabRole --policy-document '${data.aws_iam_policy_document.labrole_irsa_trust.json}'"
+    command = "aws iam update-assume-role-policy --role-name LabRole --policy-document '${data.aws_iam_policy_document.labrole_irsa_trust[0].json}'"
   }
 
-  depends_on = [aws_iam_openid_connect_provider.eks]
+  depends_on = [aws_iam_openid_connect_provider.eks[0]]
 }
